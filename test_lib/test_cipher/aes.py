@@ -1,4 +1,8 @@
-﻿Sbox = (
+﻿import struct
+import sys
+import binascii
+
+Sbox = (
     0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
     0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
     0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
@@ -36,6 +40,9 @@ InvSbox = (
     0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D,
 )
 
+xtime = lambda a: (((a << 1) ^ 0x1B) & 0xFF) if (a & 0x80) else (a << 1)
+
+
 Rcon = (
     0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40,
     0x80, 0x1B, 0x36, 0x6C, 0xD8, 0xAB, 0x4D, 0x9A,
@@ -43,7 +50,8 @@ Rcon = (
     0xD4, 0xB3, 0x7D, 0xFA, 0xEF, 0xC5, 0x91, 0x39,
 )
 
-def text2mat(text):
+
+def text2matrix(text):
     matrix = []
     for i in range(16):
         byte = (text >> (8 * (15 - i))) & 0xFF
@@ -54,26 +62,21 @@ def text2mat(text):
     return matrix
 
 
-def mat2text(matrix):
+def matrix2text(matrix):
     text = 0
     for i in range(4):
         for j in range(4):
             text |= (matrix[i][j] << (120 - 8 * (4 * i + j)))
     return text
 
-def xtime(a):
-    if a >= 128: # checking if MSB is 1
-        return (((a << 1) ^ 0x1B) & 0xFF)
-    else:
-        return (a << 1)
 
 class AES:
-    def __init__(self, key):
-        self.key_expansion(key)
+    def __init__(self, session_key):
+        self.change_key(session_key)
 
-    def key_expansion(self, key):
-        self.round_keys = text2mat(key)
-        # print self.round_keys
+    def change_key(self, session_key):
+        session_key = bytes_to_long(session_key)
+        self.round_keys = text2matrix(session_key)
 
         for i in range(4, 4 * 11):
             self.round_keys.append([])
@@ -92,72 +95,82 @@ class AES:
                     byte = self.round_keys[i - 4][j]    \
                          ^ self.round_keys[i - 1][j]
                     self.round_keys[i].append(byte)
+
+
     def encrypt(self, plaintext):
-        self.pt = text2mat(plaintext)
-        self.add_rk(self.pt, self.round_keys)
+        plaintext = bytes_to_long(plaintext)
+        self.pt = text2matrix(plaintext)
 
-        for i in range(0, 10):
-            self.round_encrypt(self.pt, self.round_keys[4 * i: 4 * i + 4])
+        self.__add_round_key(self.pt, self.round_keys[:4])
 
-        self.subBytes(self.pt)
-        self.shiftRows(self.pt)
-        self.add_rk(self.pt, self.round_keys[40:])
+        for i in range(1, 10):
+            self.__round_encrypt(self.pt, self.round_keys[4 * i : 4 * (i + 1)])
 
-        return mat2text(self.pt)
+        self.__sub_bytes(self.pt)
+        self.__shift_rows(self.pt)
+        self.__add_round_key(self.pt, self.round_keys[40:])
+
+        return long_to_bytes(matrix2text(self.pt))
 
     def decrypt(self, ciphertext):
-        self.cp = text2mat(ciphertext)
+        ciphertext = bytes_to_long(ciphertext)
+        self.cp = text2matrix(ciphertext)
 
-        self.add_rk(self.cp, self.round_keys[40:])
-        self.invshiftRows(self.cp)
-        self.invsubBytes(self.cp)
+        self.__add_round_key(self.cp, self.round_keys[40:])
+        self.__inv_shift_rows(self.cp)
+        self.__inv_sub_bytes(self.cp)
 
         for i in range(9, 0, -1):
-            self.round_decrypt(self.cp, self.round_keys[4 * i : 4 * (i + 1)])
+            self.__round_decrypt(self.cp, self.round_keys[4 * i : 4 * (i + 1)])
 
-        self.add_rk(self.cp, self.round_keys[:4])
+        self.__add_round_key(self.cp, self.round_keys[:4])
 
-        return mat2text(self.cp)
+        return long_to_bytes(matrix2text(self.cp))
 
-    def add_rk(self, s, rk):
-        for i in range(0, 4):
-            for j in range(0, 4):
-                s[i][j] ^= rk[i][j]
-    def round_encrypt(self, pt, rk):
-
-        self.subBytes(pt)
-        self.shiftRows(pt)
-        self.mixColumns(pt)
-        self.add_rk(pt, rk)
-
-    def round_decrypt(self, cp, key):
-        self.add_rk(cp, key)
-        self.invmixColumns(cp)
-        self.invshiftRows(cp)
-        self.invsubBytes(cp)
+    def __add_round_key(self, s, k):
+        for i in range(4):
+            for j in range(4):
+                s[i][j] ^= k[i][j]
 
 
-    def subBytes(self, s):
+    def __round_encrypt(self, state_matrix, key_matrix):
+        self.__sub_bytes(state_matrix)
+        self.__shift_rows(state_matrix)
+        self.__mix_columns(state_matrix)
+        self.__add_round_key(state_matrix, key_matrix)
+
+
+    def __round_decrypt(self, state_matrix, key_matrix):
+        self.__add_round_key(state_matrix, key_matrix)
+        self.__inv_mix_columns(state_matrix)
+        self.__inv_shift_rows(state_matrix)
+        self.__inv_sub_bytes(state_matrix)
+
+    def __sub_bytes(self, s):
         for i in range(4):
             for j in range(4):
                 s[i][j] = Sbox[s[i][j]]
 
-    def invsubBytes(self, s):
+
+    def __inv_sub_bytes(self, s):
         for i in range(4):
             for j in range(4):
                 s[i][j] = InvSbox[s[i][j]]
 
-    def shiftRows(self, s):
+
+    def __shift_rows(self, s):
         s[0][1], s[1][1], s[2][1], s[3][1] = s[1][1], s[2][1], s[3][1], s[0][1]
         s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
         s[0][3], s[1][3], s[2][3], s[3][3] = s[3][3], s[0][3], s[1][3], s[2][3]
 
-    def invshiftRows(self, s):
+
+    def __inv_shift_rows(self, s):
         s[0][1], s[1][1], s[2][1], s[3][1] = s[3][1], s[0][1], s[1][1], s[2][1]
         s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
         s[0][3], s[1][3], s[2][3], s[3][3] = s[1][3], s[2][3], s[3][3], s[0][3]
 
-    def mix1column(self, a):
+    def __mix_single_column(self, a):
+        # please see Sec 4.1.2 in The Design of Rijndael
         t = a[0] ^ a[1] ^ a[2] ^ a[3]
         u = a[0]
         a[0] ^= t ^ xtime(a[0] ^ a[1])
@@ -165,11 +178,13 @@ class AES:
         a[2] ^= t ^ xtime(a[2] ^ a[3])
         a[3] ^= t ^ xtime(a[3] ^ u)
 
-    def mixColumns(self, s):
-        for i in range(4):
-            self.mix1column(s[i])
 
-    def invmixColumns(self, s):
+    def __mix_columns(self, s):
+        for i in range(4):
+            self.__mix_single_column(s[i])
+
+
+    def __inv_mix_columns(self, s):
         for i in range(4):
             u = xtime(xtime(s[i][0] ^ s[i][2]))
             v = xtime(xtime(s[i][1] ^ s[i][3]))
@@ -177,10 +192,121 @@ class AES:
             s[i][1] ^= v
             s[i][2] ^= u
             s[i][3] ^= v
-        self.mixColumns(s)
+
+        self.__mix_columns(s)
+
+
+
+
+def long_to_bytes(n, blocksize=0):
+
+    if n < 0 or blocksize < 0:
+        raise ValueError("Values must be non-negative")
+
+    result = []
+    pack = struct.pack
+
+    # Fill the first block independently from the value of n
+    bsr = blocksize
+    while bsr >= 8:
+        result.insert(0, pack('>Q', n & 0xFFFFFFFFFFFFFFFF))
+        n = n >> 64
+        bsr -= 8
+
+    while bsr >= 4:
+        result.insert(0, pack('>I', n & 0xFFFFFFFF))
+        n = n >> 32
+        bsr -= 4
+
+    while bsr > 0:
+        result.insert(0, pack('>B', n & 0xFF))
+        n = n >> 8
+        bsr -= 1
+
+    if n == 0:
+        if len(result) == 0:
+            bresult = b'\x00'
+        else:
+            bresult = b''.join(result)
+    else:
+        # The encoded number exceeds the block size
+        while n > 0:
+            result.insert(0, pack('>Q', n & 0xFFFFFFFFFFFFFFFF))
+            n = n >> 64
+        result[0] = result[0].lstrip(b'\x00')
+        bresult = b''.join(result)
+        # bresult has minimum length here
+        if blocksize > 0:
+            target_len = ((len(bresult) - 1) // blocksize + 1) * blocksize
+            bresult = b'\x00' * (target_len - len(bresult)) + bresult
+
+    return bresult
+
+
+def bytes_to_long(s):
+    """Convert a byte string to a long integer (big endian).
+
+    In Python 3.2+, use the native method instead::
+
+        >>> int.from_bytes(s, 'big')
+
+    For instance::
+
+        >>> int.from_bytes(b'\x00P', 'big')
+        80
+
+    This is (essentially) the inverse of :func:`long_to_bytes`.
+    """
+    acc = 0
+
+    unpack = struct.unpack
+
+    # Up to Python 2.7.4, struct.unpack can't work with bytearrays nor
+    # memoryviews
+    if sys.version_info[0:3] < (2, 7, 4):
+        if isinstance(s, bytearray):
+            s = bytes(s)
+        elif isinstance(s, memoryview):
+            s = s.tobytes()
+
+    length = len(s)
+    if length % 4:
+        extra = (4 - length % 4)
+        s = b'\x00' * extra + s
+        length = length + extra
+    for i in range(0, length, 4):
+        acc = (acc << 32) + unpack('>I', s[i:i+4])[0]
+    return acc
+
+
+def _copy_bytes(start, end, seq):
+    """Return an immutable copy of a sequence (byte string, byte array, memoryview)
+    in a certain interval [start:seq]"""
+
+    if isinstance(seq, memoryview):
+        return seq[start:end].tobytes()
+    elif isinstance(seq, bytearray):
+        return bytes(seq[start:end])
+    else:
+        return seq[start:end]
+
+
 '''
-mkey = 0x2b7e151628aed2a6abf7158809cf4f3c
-pt = 0x2b7e151628aed2a6abf7158809cf4f3c1243363983993939393939
+mkey = b'sixteen byte key'
+pt = b'sixteen byte plt'
+
+
+
+
+#mkey = 0x2b7e151628aed2a6abf7158809cf4f3c
+#pt = 0x3243f6a8885a308d313198a2e0370734
+print('true pt:', pt)
+
+
 key = AES(mkey)
 cp = key.encrypt(pt)
-print(cp)'''
+print('encr cp:',cp)
+
+plt = key.decrypt(cp)
+print('decr pt:',plt)
+'''
