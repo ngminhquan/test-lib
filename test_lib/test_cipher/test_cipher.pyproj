@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>626c576b-b4e0-4aae-a55a-1245d38da301</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>test_cipher.py</StartupFile>
+    <StartupFile>test_ccm.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -23,7 +23,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="aes.py" />
-    <Compile Include="test_cipher.py" />
+    <Compile Include="test_cbc.py" />
+    <Compile Include="test_ccm.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

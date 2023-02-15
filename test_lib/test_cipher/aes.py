@@ -50,7 +50,6 @@ Rcon = (
     0xD4, 0xB3, 0x7D, 0xFA, 0xEF, 0xC5, 0x91, 0x39,
 )
 
-
 def text2matrix(text):
     matrix = []
     for i in range(16):
@@ -74,12 +73,13 @@ class AES:
     def __init__(self, session_key):
         self.change_key(session_key)
 
-    def change_key(self, session_key):
+    def change_key(self, session_key):          #generate round key for each round
         session_key = bytes_to_long(session_key)
         self.round_keys = text2matrix(session_key)
 
         for i in range(4, 4 * 11):
             self.round_keys.append([])
+
             if i % 4 == 0:
                 byte = self.round_keys[i - 4][0]        \
                      ^ Sbox[self.round_keys[i - 1][1]]  \
@@ -103,6 +103,7 @@ class AES:
 
         self.__add_round_key(self.pt, self.round_keys[:4])
 
+        #encrypt in 10 rounds
         for i in range(1, 10):
             self.__round_encrypt(self.pt, self.round_keys[4 * i : 4 * (i + 1)])
 
@@ -133,6 +134,8 @@ class AES:
                 s[i][j] ^= k[i][j]
 
 
+
+    #encrypt and decrypt in each round
     def __round_encrypt(self, state_matrix, key_matrix):
         self.__sub_bytes(state_matrix)
         self.__shift_rows(state_matrix)
@@ -146,6 +149,8 @@ class AES:
         self.__inv_shift_rows(state_matrix)
         self.__inv_sub_bytes(state_matrix)
 
+
+    #subBytes func
     def __sub_bytes(self, s):
         for i in range(4):
             for j in range(4):
@@ -157,7 +162,7 @@ class AES:
             for j in range(4):
                 s[i][j] = InvSbox[s[i][j]]
 
-
+    #shiftRows func
     def __shift_rows(self, s):
         s[0][1], s[1][1], s[2][1], s[3][1] = s[1][1], s[2][1], s[3][1], s[0][1]
         s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
@@ -169,8 +174,9 @@ class AES:
         s[0][2], s[1][2], s[2][2], s[3][2] = s[2][2], s[3][2], s[0][2], s[1][2]
         s[0][3], s[1][3], s[2][3], s[3][3] = s[1][3], s[2][3], s[3][3], s[0][3]
 
+
+    #mixCollumns func
     def __mix_single_column(self, a):
-        # please see Sec 4.1.2 in The Design of Rijndael
         t = a[0] ^ a[1] ^ a[2] ^ a[3]
         u = a[0]
         a[0] ^= t ^ xtime(a[0] ^ a[1])
@@ -197,7 +203,7 @@ class AES:
 
 
 
-
+#convert bytes -> long and long -> bytes
 def long_to_bytes(n, blocksize=0):
 
     if n < 0 or blocksize < 0:
@@ -292,6 +298,7 @@ def _copy_bytes(start, end, seq):
 
 
 '''
+#test algorithms
 mkey = b'sixteen byte key'
 pt = b'sixteen byte plt'
 
